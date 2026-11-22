@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ipynb_checkpoints/
+data/raw/*.txt
+data/processed/*
+!data/processed/.gitkeep
+outputs/figures/*.png
+models/*
+!models/.gitkeep
