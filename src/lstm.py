@@ -38,17 +38,14 @@ def scale_windows(windows: np.ndarray, scaler: StandardScaler) -> torch.Tensor:
     return torch.as_tensor(scaled, dtype=torch.float32)
 
 
-def train_and_predict(
-    train: pd.DataFrame, validation: pd.DataFrame
-) -> tuple[list[float], pd.DataFrame, np.ndarray]:
-    """Return the training MAE by epoch, benchmark endpoints, and their predictions."""
+def fit_lstm(train: pd.DataFrame) -> tuple[LSTMRegressor, StandardScaler, list[float]]:
+    """Fit the scaler and LSTM on labeled complete trajectories."""
     torch.manual_seed(SEED)
     torch.set_num_threads(2)
 
     # Fit once on raw fitting rows so overlapping windows do not reweight them.
     scaler = StandardScaler().fit(train[WINDOW_FEATURES].to_numpy())
     train_windows, train_endpoints = make_windows(train)
-    validation_windows, validation_endpoints = make_windows(validation)
 
     train_inputs = scale_windows(train_windows, scaler)
     train_targets = torch.as_tensor(train_endpoints["RUL"].to_numpy(), dtype=torch.float32)
@@ -74,15 +71,28 @@ def train_and_predict(
         history.append(epoch_mae)
         print(f"Epoch {epoch:2}/{EPOCHS} | training MAE: {epoch_mae:.2f} cycles")
 
-    # Use the same engine visits as the Random Forest comparison.
-    benchmark_mask = validation_endpoints["cycle"].isin(VALIDATION_CYCLES).to_numpy()
-    benchmark_inputs = scale_windows(validation_windows[benchmark_mask], scaler)
-    endpoints = validation_endpoints.loc[benchmark_mask].reset_index(drop=True)
+    return model, scaler, history
+
+
+def predict_windows(
+    model: LSTMRegressor, scaler: StandardScaler, windows: np.ndarray
+) -> np.ndarray:
+    """Predict remaining cycles from windows of readings."""
+    inputs = scale_windows(windows, scaler)
     model.eval()
     with torch.inference_mode():
-        predicted = (model(benchmark_inputs) * TARGET_SCALE).clamp_min(0).numpy()
+        return (model(inputs) * TARGET_SCALE).clamp_min(0).numpy()
 
-    return history, endpoints, predicted
+
+def train_and_predict(
+    train: pd.DataFrame, validation: pd.DataFrame
+) -> tuple[list[float], pd.DataFrame, np.ndarray]:
+    """Return training history, benchmark endpoints, and validation predictions."""
+    model, scaler, history = fit_lstm(train)
+    windows, endpoints = make_windows(validation)
+    benchmark_mask = endpoints["cycle"].isin(VALIDATION_CYCLES).to_numpy()
+    predicted = predict_windows(model, scaler, windows[benchmark_mask])
+    return history, endpoints.loc[benchmark_mask].reset_index(drop=True), predicted
 
 
 def main() -> None:

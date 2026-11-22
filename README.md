@@ -34,7 +34,7 @@ The top panel shows one of the readings the models can use. The bottom panel sho
 
 We split the 100 complete logs into **80 training engines** and **20 validation engines** using a fixed seed of 42, so the same engines land in each group every time we rerun it. One engine’s rows all go into the same group. If we put some pages of one engine’s log into practice and other pages into the quiz, the model could recognize that engine and make the quiz look easier than it is. That shortcut is called **data leakage**.
 
-For the quiz, every model guesses at cycles **50, 100, and 150** where those cycles exist. One validation engine stopped before cycle 150, so there are **59 guesses** in total. The separate official test set is reserved for final evaluation. The scores below come from this practice quiz.
+For the quiz, every model guesses at cycles **50, 100, and 150** where those cycles exist. One validation engine stopped before cycle 150, so there are **59 guesses** in total. These practice scores come from the complete logs. The official test set is a separate set of engines with shorter, unfinished logs.
 
 ## 4. Start with simple guesses, then train a Random Forest
 
@@ -82,7 +82,24 @@ If the correct answer is **80** and the model guesses **65**, the absolute error
 
 ![Two plots compare each model’s predictions with the correct answers. Each dot is one of the same 59 validation visits, and the diagonal marks a perfect prediction.](docs/figures/actual-vs-predicted.png)
 
-Each dot is one guess. A dot on the dashed line means the guess was exactly right. A dot above it means the model guessed too many cycles. A dot below it means it guessed too few. The LSTM’s average miss was **1.40 cycles smaller** than the full Random Forest’s on this split. We have one validation split so far, and final performance on the official test set is still unknown.
+Each dot is one guess. A dot on the dashed line means the guess was exactly right. A dot above it means the model guessed too many cycles. A dot below it means it guessed too few. The LSTM’s average miss was **1.40 cycles smaller** than the full Random Forest’s on this split. That comparison uses one validation split and fixed prediction cycles.
+
+## 8. Take the final quiz on NASA’s official test engines
+
+We kept the model settings from the practice quiz and fitted the models again using **all 100 complete training histories**. Then we made **one prediction for each of the 100 official test engines**, at the last cycle in its provided log. The Random Forest read the last row. The LSTM read the last 20 rows. Both models answered for the same engine at the same point in time.
+
+For example, the first official test engine’s log ends at **cycle 31**. In the simulation, it had **112 cycles left** at that point. We get that answer from the separate answer file after making the predictions. For the LSTM, the input is cycles **12 through 31** from the partial log.
+
+| Model | Official test MAE | Official test RMSE |
+| --- | ---: | ---: |
+| Training median | 39.08 cycles | 49.82 cycles |
+| Random Forest, age only | 31.43 cycles | 36.75 cycles |
+| Random Forest, age and readings | 19.93 cycles | **26.69 cycles** |
+| LSTM, last 20 cycles of readings | **19.53 cycles** | 28.69 cycles |
+
+The LSTM missed by about **19.53 cycles on average**, 0.40 cycles less than the full Random Forest. The Random Forest scored better when the metric gave larger mistakes more weight. These scores summarize the 100 official FD001 test predictions after refitting on all complete logs. The validation scores above use a different training split and different prediction cycles.
+
+[Official evaluation code](src/evaluate.py)
 
 ## Run it yourself
 
@@ -100,7 +117,7 @@ Each dot is one guess. A dot on the dashed line means the guess was exactly righ
    python -m pip install -r requirements.txt
    ```
 
-   To train the LSTM or regenerate the README figures, also install the CPU build of PyTorch for your system. [PyTorch installation instructions](https://pytorch.org/get-started/locally/)
+   To train the LSTM, run the official test, or regenerate the README figures, also install the CPU build of PyTorch for your system. [PyTorch installation instructions](https://pytorch.org/get-started/locally/)
 
 3. Extract these three files from the NASA download into `data/raw/`. The project archive may already contain them.
 
@@ -121,6 +138,7 @@ Each dot is one guess. A dot on the dashed line means the guess was exactly righ
    | `python -m src.baseline` | Validation results for the three single-row models. |
    | `python -m src.windows` | Window sizes and a labeled example. |
    | `python -m src.lstm` | Training error at each epoch and the final validation scores. |
+   | `python -m src.evaluate` | Scores at the last recorded cycle of each official test engine. |
    | `python -m src.visualize` | Retrains the models and regenerates the four pictures in `docs/figures/`. |
    | `python -m pytest -q` | Checks RUL labels, the split, and the window logic. |
 

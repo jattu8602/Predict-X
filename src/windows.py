@@ -8,19 +8,21 @@ from src.preprocessing import VALIDATION_CYCLES, add_rul, split_engines
 
 WINDOW_SIZE = 20
 WINDOW_FEATURES = ["cycle", *FEATURES]
-ENDPOINT_COLUMNS = ["unit_id", "cycle", "RUL"]
+ENDPOINT_KEYS = ["unit_id", "cycle"]
+ENDPOINT_COLUMNS = [*ENDPOINT_KEYS, "RUL"]
 
 
 def make_windows(
     rows: pd.DataFrame, window_size: int = WINDOW_SIZE
 ) -> tuple[np.ndarray, pd.DataFrame]:
-    """Return (windows, cycles, features) inputs and their labeled endpoints.
+    """Return (windows, cycles, features) inputs and their endpoints.
 
-    Pass labeled trajectories with consecutive cycles, as checked by the FD001 loader.
+    Pass consecutive cycles, as checked by the FD001 loader. RUL is optional metadata.
     """
     if window_size < 1:
         raise ValueError("window_size must be positive.")
 
+    endpoint_columns = ENDPOINT_COLUMNS if "RUL" in rows else ENDPOINT_KEYS
     windows = []
     endpoints = []
     for _, engine in rows.groupby("unit_id"):
@@ -33,11 +35,11 @@ def make_windows(
             # The slice excludes stop, so stop - 1 is the final reading.
             windows.append(values[stop - window_size : stop])
 
-        endpoints.append(engine.iloc[window_size - 1 :][ENDPOINT_COLUMNS])
+        endpoints.append(engine.iloc[window_size - 1 :][endpoint_columns])
 
     if not windows:
         empty_inputs = np.empty((0, window_size, len(WINDOW_FEATURES)), dtype=np.float32)
-        return empty_inputs, rows[ENDPOINT_COLUMNS].iloc[:0].reset_index(drop=True)
+        return empty_inputs, rows[endpoint_columns].iloc[:0].reset_index(drop=True)
 
     return np.stack(windows), pd.concat(endpoints, ignore_index=True)
 

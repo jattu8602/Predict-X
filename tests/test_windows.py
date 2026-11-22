@@ -30,3 +30,15 @@ def test_short_trajectories_return_a_correctly_shaped_empty_batch():
 
     assert inputs.shape == (0, 2, len(WINDOW_FEATURES))
     assert endpoints.empty
+
+
+def test_unlabeled_windows_keep_their_engine_and_final_cycle():
+    rows = pd.DataFrame(
+        {"unit_id": [1, 1, 2, 2], "cycle": [1, 2, 1, 2], **dict.fromkeys(FEATURES, 10)}
+    )
+    inputs, endpoints = make_windows(rows, window_size=2)
+
+    np.testing.assert_array_equal(inputs[:, :, 0], [[1, 2], [1, 2]])
+    pd.testing.assert_frame_equal(
+        endpoints, pd.DataFrame({"unit_id": [1, 2], "cycle": [2, 2]})
+    )
