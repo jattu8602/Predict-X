@@ -15,6 +15,7 @@ project-X/
 │   ├── baseline.py
 │   ├── data_loader.py
 │   ├── eda.py
+│   ├── lstm.py
 │   ├── preprocessing.py
 │   └── windows.py
 ├── outputs/figures/         # Generated PNGs
@@ -50,7 +51,7 @@ Install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
-The baseline uses scikit-learn. The planned sequence models will use [PyTorch](https://pytorch.org/get-started/locally/).
+The baseline uses scikit-learn. The LSTM also requires [PyTorch](https://pytorch.org/get-started/locally/), installed separately.
 
 ## 2. Check the data
 
@@ -98,4 +99,21 @@ MAE averages the absolute error in cycles. RMSE gives larger misses more weight.
 
 Run `python -m src.windows` to inspect the shapes and see a labeled example from FD001. The script splits by engine first, then builds overlapping windows of 20 consecutive cycles within each engine. Each input has 20 rows and 25 features per row (cycle, three settings, and 21 sensor measurements). Engine ID stays in the endpoint metadata and is used for grouping.
 
-If a window ends at cycle 101, it uses measurements from cycles 82 through 101 and takes its RUL target from cycle 101. Validation windows end at the same cycles used for the Random Forest benchmark (50, 100, and 150), so the two approaches can later be scored on the same observations. This step builds model inputs from raw features. Sequence model training will fit its feature scaler on the training engines before applying it to both partitions.
+If a window ends at cycle 101, it uses measurements from cycles 82 through 101 and takes its RUL target from cycle 101. Validation windows end at the same cycles used for the Random Forest benchmark (50, 100, and 150), so the two approaches can later be scored on the same observations. This step builds model inputs from raw features. The LSTM training script fits its feature scaler on the training engines before applying it to both partitions.
+
+## 6. Train the LSTM
+
+Install a CPU build of PyTorch in the project environment using the [PyTorch installer](https://pytorch.org/get-started/locally/). Then run:
+
+```sh
+python -m src.lstm
+```
+
+The LSTM reads one 20-cycle window in order and updates its hidden state after each reading. A linear layer uses the last hidden state to predict one RUL value. The script fits the feature scaler on the original training rows before transforming the overlapping windows, so each original row contributes equally to the scaler. It trains for 15 epochs with Adam and evaluates once on the same 59 validation endpoints used by the Random Forest.
+
+| Model | Validation MAE (cycles) | Validation RMSE (cycles) |
+| --- | ---: | ---: |
+| Random Forest, age and telemetry | 25.54 | 32.88 |
+| LSTM, 20 cycles of age and telemetry | 24.14 | 32.48 |
+
+These results use one FD001 validation split (seed 42). The LSTM result is from PyTorch 2.15.0 on CPU. The script reports running training error while the model is being updated, followed by validation error on held-out engines. The 1.40-cycle difference in validation MAE is specific to this run. Official test labels are reserved for final evaluation.
