@@ -15,7 +15,8 @@ project-X/
 │   ├── baseline.py
 │   ├── data_loader.py
 │   ├── eda.py
-│   └── preprocessing.py
+│   ├── preprocessing.py
+│   └── windows.py
 ├── outputs/figures/         # Generated PNGs
 ├── models/                  # Local model artifacts
 ├── tests/
@@ -92,3 +93,9 @@ The script fits models on 80 engines and compares them on 59 observations from 2
 | Random Forest, age and telemetry | 25.54 | 32.88 |
 
 MAE averages the absolute error in cycles. RMSE gives larger misses more weight. The two forests use the same hyperparameters, so the comparison measures the effect of adding sensor readings and operating settings on this validation split. Keep the official test labels for final evaluation after selecting a model.
+
+## 5. Build sequence inputs
+
+Run `python -m src.windows` to inspect the shapes and see a labeled example from FD001. The script splits by engine first, then builds overlapping windows of 20 consecutive cycles within each engine. Each input has 20 rows and 25 features per row (cycle, three settings, and 21 sensor measurements). Engine ID stays in the endpoint metadata and is used for grouping.
+
+If a window ends at cycle 101, it uses measurements from cycles 82 through 101 and takes its RUL target from cycle 101. Validation windows end at the same cycles used for the Random Forest benchmark (50, 100, and 150), so the two approaches can later be scored on the same observations. This step builds model inputs from raw features. Sequence model training will fit its feature scaler on the training engines before applying it to both partitions.

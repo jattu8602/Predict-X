@@ -5,9 +5,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 
 from src.data_loader import FEATURES, RAW_DIR, load_trajectories
-from src.preprocessing import add_rul, split_engines
-
-VALIDATION_CYCLES = (50, 100, 150)
+from src.preprocessing import VALIDATION_CYCLES, add_rul, split_engines
 
 
 def main() -> None:

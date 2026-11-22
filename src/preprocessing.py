@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from src.data_loader import FEATURES, ROOT, load_fd001
 
 PROCESSED_DIR = ROOT / "data" / "processed"
+VALIDATION_CYCLES = (50, 100, 150)
 
 
 def add_rul(trajectories: pd.DataFrame) -> pd.DataFrame:
