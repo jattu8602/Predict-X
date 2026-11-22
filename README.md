@@ -1,6 +1,6 @@
 # PredictX
 
-PredictX estimates the remaining useful life (RUL) of turbofan engines from multivariate sensor time series. Stage 1 prepares the NASA C-MAPSS FD001 data for a classical regression baseline and later PyTorch sequence models.
+PredictX estimates the remaining useful life (RUL) of turbofan engines from multivariate sensor time series. The project uses NASA C-MAPSS FD001 to prepare engine trajectories and benchmark regression models.
 
 ## Project layout
 
@@ -12,11 +12,12 @@ project-X/
 ├── notebooks/
 │   └── 01_eda.ipynb         # Summary, correlations and trajectory plots
 ├── src/
+│   ├── baseline.py
 │   ├── data_loader.py
 │   ├── eda.py
 │   └── preprocessing.py
 ├── outputs/figures/         # Generated PNGs
-├── models/                  # Reserved for Stage 2
+├── models/                  # Local model artifacts
 ├── tests/
 ├── requirements.txt
 └── .gitignore
@@ -48,7 +49,7 @@ Install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
-PyTorch will be used for sequence models in Stage 2. When starting that stage, install the build for your system using the [PyTorch installation selector](https://pytorch.org/get-started/locally/).
+The baseline uses scikit-learn. The planned sequence models will use [PyTorch](https://pytorch.org/get-started/locally/).
 
 ## 2. Check the data
 
@@ -74,4 +75,20 @@ For each run-to-failure engine, subtract the current cycle from its last cycle. 
 
 The pipeline uses a reproducible split at the engine level with seed 42. Every trajectory belongs wholly to one partition. The standardization parameters come from fitting rows only, then the same scaler transforms validation and official test rows. When adding a model, use only readings at or before the prediction cycle, build windows within individual engines, and reserve official test labels for final evaluation.
 
-Stage 1 stops at verified data preparation. It produces no model performance metrics.
+## 4. Compare baseline models
+
+From the project directory, run:
+
+```sh
+python -m src.baseline
+```
+
+The script fits models on 80 engines and compares them on 59 observations from 20 held-out engines. Evaluation uses cycles 50, 100, and 150 wherever the engine reached that cycle. Each prediction uses the current cycle and, for the full model, the measurements recorded at that cycle. The engine ID only determines which partition a row belongs to. The script fits directly on raw measurements because decision trees split features by thresholds and do not require standardization.
+
+| Model | Validation MAE (cycles) | Validation RMSE (cycles) |
+| --- | ---: | ---: |
+| Training median | 46.31 | 56.69 |
+| Random Forest, age only | 36.99 | 41.04 |
+| Random Forest, age and telemetry | 25.54 | 32.88 |
+
+MAE averages the absolute error in cycles. RMSE gives larger misses more weight. The two forests use the same hyperparameters, so the comparison measures the effect of adding sensor readings and operating settings on this validation split. Keep the official test labels for final evaluation after selecting a model.
