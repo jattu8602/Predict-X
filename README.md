@@ -1,119 +1,127 @@
-# PredictX
+# Predict‑X · How many cycles does an engine have left?
 
-PredictX estimates the remaining useful life (RUL) of turbofan engines from multivariate sensor time series. The project uses NASA C-MAPSS FD001 to prepare engine trajectories and benchmark regression models.
+Predict‑X learns from simulated aircraft engines. We give the computer a record of what an engine has done so far and ask it to predict **how many more operating cycles the engine can complete before it fails**. We call that number **remaining useful life**, or **RUL**.
 
-## Project layout
+Think of an engine log as a notebook. Every operating cycle adds a new row of readings. During training, the computer can check its guesses against the answers from engines that ran until failure. At prediction time, it gets the pages written so far.
+
+## 1. Open an engine log
+
+We use **FD001**, a part of NASA’s C‑MAPSS turbofan simulation dataset. Each measurement row describes one engine at one point in time.
+
+| What’s in the row | What it means |
+| --- | --- |
+| Engine ID | Which engine made the reading |
+| Cycle number | How many operating cycles that engine has completed |
+| Three operating settings | How the engine was being operated |
+| 21 sensor readings | Measurements that tell us about the engine’s condition |
+
+`train_FD001.txt` has full logs for **100 engines** that ran until failure. `test_FD001.txt` has partial logs for **100 other engines**. The separate file `RUL_FD001.txt` gives the answer for the final recorded cycle of each official test engine. [NASA dataset](https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data)
+
+## 2. Turn each known failure into a countdown
+
+In a complete log, the last recorded cycle is the failure cycle. Subtract the current cycle from it to get the answer for that row.
 
 ```text
-project-X/
-├── data/
-│   ├── raw/                 # Three NASA FD001 source files
-│   └── processed/           # Generated CSVs and fitted scaler
-├── notebooks/
-│   └── 01_eda.ipynb         # Summary, correlations and trajectory plots
-├── src/
-│   ├── baseline.py
-│   ├── data_loader.py
-│   ├── eda.py
-│   ├── lstm.py
-│   ├── preprocessing.py
-│   └── windows.py
-├── outputs/figures/         # Generated PNGs
-├── models/                  # Local model artifacts
-├── tests/
-├── requirements.txt
-└── .gitignore
+Remaining useful life = failure cycle − current cycle
+Engine 1 at cycle 100  = 192 − 100 = 92 cycles left
 ```
 
-## 1. Set up Python
+![NASA FD001 engine 1. Sensor 11 changes over time, while remaining life counts down to zero. The shaded window covers cycles 81 through 100.](docs/figures/engine-window.png)
 
-Open `project-X` in VS Code or a terminal. Use Python 3.10 or newer.
+The top panel shows one of the readings the models can use. The bottom panel shows the answer we want the models to learn. At cycle 100, the answer is **92**. One cycle later, the answer is **91**.
 
-```sh
-python -m venv .venv
+## 3. Give the models a fair practice quiz
+
+We split the 100 complete logs into **80 training engines** and **20 validation engines** using a fixed seed of 42, so the same engines land in each group every time we rerun it. One engine’s rows all go into the same group. If we put some pages of one engine’s log into practice and other pages into the quiz, the model could recognize that engine and make the quiz look easier than it is. That shortcut is called **data leakage**.
+
+For the quiz, every model guesses at cycles **50, 100, and 150** where those cycles exist. One validation engine stopped before cycle 150, so there are **59 guesses** in total. The separate official test set is reserved for final evaluation. The scores below come from this practice quiz.
+
+## 4. Start with simple guesses, then train a Random Forest
+
+We try three ways to answer the same question with one row at a time.
+
+1. **Training median.** Sort all the training answers and always guess the middle value.
+2. **Random Forest with age only.** Give the model the current cycle number. Engines of the same age get the same prediction from this model.
+3. **Random Forest with age and readings.** Also give it the three operating settings and the 21 sensor values recorded at that cycle.
+
+A Random Forest grows **100 decision trees** in our setup. A tree learns simple questions from the practice data, such as “Is this sensor reading above a certain value?” Following the answers through one tree leads to its guess. The forest averages all 100 guesses. Both forests use the same training settings, so the comparison shows what changes when we give the forest the extra measurements. [Random Forest code](src/baseline.py)
+
+## 5. Let the LSTM read 20 rows in order
+
+A single row tells us what the engine looks like now. A **window** lets the model see how those readings have been changing.
+
+```text
+Read cycles 81 through 100 → predict the RUL at 100 → answer is 92
+Read cycles 82 through 101 → predict the RUL at 101 → answer is 91
 ```
 
-Activate it on Windows PowerShell:
+Each input window contains **20 rows**, each with **25 numbers** (cycle, three settings, and 21 sensors). A window stays within one engine and stops at the cycle where we make the guess. We built **15,041 training windows** this way. [Window-building code](src/windows.py)
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+An **LSTM** is a model that reads rows in order and updates an internal summary after each one. A final layer turns the summary after row 20 into one prediction. Before training, we put the input columns on comparable scales using statistics from the 80 training engines. We apply those same statistics to the validation inputs. [LSTM code](src/lstm.py)
 
-On macOS/Linux:
+## 6. Watch the LSTM learn from its mistakes
 
-```sh
-source .venv/bin/activate
-```
+One pass through the training windows is an **epoch**. The LSTM makes guesses, measures how far they are from the answers, and updates itself in small batches. We trained for **15 epochs**, using up to **128 windows** per batch. Each batch gives the model one chance to adjust its weights.
 
-Install the dependencies:
+![The LSTM’s average training error drops from 45.10 cycles in epoch 1 to 14.89 cycles in epoch 15.](docs/figures/lstm-training.png)
 
-```sh
-python -m pip install -r requirements.txt
-```
+The line shows error on the training windows while the model was updating. The next chart shows how it did on the held-out engines after training ended.
 
-The baseline uses scikit-learn. The LSTM also requires [PyTorch](https://pytorch.org/get-started/locally/), installed separately.
+## 7. Compare the models on the same quiz
 
-## 2. Check the data
+If the correct answer is **80** and the model guesses **65**, the absolute error is **15 cycles**. **Mean absolute error (MAE)** averages those misses. **Root mean squared error (RMSE)** gives bigger mistakes more weight. For both numbers, lower is better.
 
-If you have the project archive, the supplied FD001 files are already in `data/raw/`. If you cloned the repository, download the original archive from the [NASA Turbofan Engine Degradation Simulation Data Set](https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data) and extract `train_FD001.txt`, `test_FD001.txt`, and `RUL_FD001.txt` into that directory. FD001 covers one operating condition and one fault mode. Each measurement row has 26 columns: engine ID, cycle, three operating settings, and 21 sensor measurements.
+![Average validation error is 46.31 cycles for the training median, 36.99 for age-only Random Forest, 25.54 for Random Forest with readings, and 24.14 for the LSTM.](docs/figures/validation-comparison.png)
 
-## 3. Run Stage 1
-
-Run these commands from the project directory:
-
-```sh
-python -m src.eda
-python -m src.preprocessing
-python -m pytest -q
-```
-
-The EDA script prints sensor statistics and writes three figures to `outputs/figures/`. It uses the 80 fitting engines so the 20 validation engines stay held out when exploring features. Run `jupyter notebook` and open `notebooks/01_eda.ipynb` to inspect the data interactively, including the correlation matrix for varying sensors.
-
-The preprocessing command creates `train.csv`, `validation.csv`, `test.csv`, `test_targets.csv`, and `scaler.joblib` in `data/processed/`. The measurement CSVs preserve the engine ID and operating cycle for grouping and sequencing. Their 24 operating and sensor features are standardized. Training and validation also include RUL in cycles.
-
-## RUL labels and data leakage
-
-For each run-to-failure engine, subtract the current cycle from its last cycle. For example, cycle 150 of an engine that fails at cycle 200 has an RUL of 50. Official test trajectories stop before failure. Each test label applies to the last observed cycle of its test engine and is exported separately.
-
-The pipeline uses a reproducible split at the engine level with seed 42. Every trajectory belongs wholly to one partition. The standardization parameters come from fitting rows only, then the same scaler transforms validation and official test rows. When adding a model, use only readings at or before the prediction cycle, build windows within individual engines, and reserve official test labels for final evaluation.
-
-## 4. Compare baseline models
-
-From the project directory, run:
-
-```sh
-python -m src.baseline
-```
-
-The script fits models on 80 engines and compares them on 59 observations from 20 held-out engines. Evaluation uses cycles 50, 100, and 150 wherever the engine reached that cycle. Each prediction uses the current cycle and, for the full model, the measurements recorded at that cycle. The engine ID only determines which partition a row belongs to. The script fits directly on raw measurements because decision trees split features by thresholds and do not require standardization.
-
-| Model | Validation MAE (cycles) | Validation RMSE (cycles) |
+| Model | Average error (MAE) | Error with extra weight on big misses (RMSE) |
 | --- | ---: | ---: |
-| Training median | 46.31 | 56.69 |
-| Random Forest, age only | 36.99 | 41.04 |
-| Random Forest, age and telemetry | 25.54 | 32.88 |
+| Training median | 46.31 cycles | 56.69 cycles |
+| Random Forest, age only | 36.99 cycles | 41.04 cycles |
+| Random Forest, age and readings | 25.54 cycles | 32.88 cycles |
+| LSTM, last 20 cycles of readings | **24.14 cycles** | **32.48 cycles** |
 
-MAE averages the absolute error in cycles. RMSE gives larger misses more weight. The two forests use the same hyperparameters, so the comparison measures the effect of adding sensor readings and operating settings on this validation split. Keep the official test labels for final evaluation after selecting a model.
+![Two plots compare each model’s predictions with the correct answers. Each dot is one of the same 59 validation visits, and the diagonal marks a perfect prediction.](docs/figures/actual-vs-predicted.png)
 
-## 5. Build sequence inputs
+Each dot is one guess. A dot on the dashed line means the guess was exactly right. A dot above it means the model guessed too many cycles. A dot below it means it guessed too few. The LSTM’s average miss was **1.40 cycles smaller** than the full Random Forest’s on this split. We have one validation split so far, and final performance on the official test set is still unknown.
 
-Run `python -m src.windows` to inspect the shapes and see a labeled example from FD001. The script splits by engine first, then builds overlapping windows of 20 consecutive cycles within each engine. Each input has 20 rows and 25 features per row (cycle, three settings, and 21 sensor measurements). Engine ID stays in the endpoint metadata and is used for grouping.
+## Run it yourself
 
-If a window ends at cycle 101, it uses measurements from cycles 82 through 101 and takes its RUL target from cycle 101. Validation windows end at the same cycles used for the Random Forest benchmark (50, 100, and 150), so the two approaches can later be scored on the same observations. This step builds model inputs from raw features. The LSTM training script fits its feature scaler on the training engines before applying it to both partitions.
+1. Clone the repository and create a Python environment (Python 3.10 or newer).
 
-## 6. Train the LSTM
+   ```sh
+   git clone https://github.com/jattu8602/Predict-X.git
+   cd Predict-X
+   python -m venv .venv
+   ```
 
-Install a CPU build of PyTorch in the project environment using the [PyTorch installer](https://pytorch.org/get-started/locally/). Then run:
+2. Activate the environment with `source .venv/bin/activate` on macOS or Linux, or `.\.venv\Scripts\Activate.ps1` in Windows PowerShell. Then install the project dependencies.
 
-```sh
-python -m src.lstm
-```
+   ```sh
+   python -m pip install -r requirements.txt
+   ```
 
-The LSTM reads one 20-cycle window in order and updates its hidden state after each reading. A linear layer uses the last hidden state to predict one RUL value. The script fits the feature scaler on the original training rows before transforming the overlapping windows, so each original row contributes equally to the scaler. It trains for 15 epochs with Adam and evaluates once on the same 59 validation endpoints used by the Random Forest.
+   To train the LSTM or regenerate the README figures, also install the CPU build of PyTorch for your system. [PyTorch installation instructions](https://pytorch.org/get-started/locally/)
 
-| Model | Validation MAE (cycles) | Validation RMSE (cycles) |
-| --- | ---: | ---: |
-| Random Forest, age and telemetry | 25.54 | 32.88 |
-| LSTM, 20 cycles of age and telemetry | 24.14 | 32.48 |
+3. Extract these three files from the NASA download into `data/raw/`. The project archive may already contain them.
 
-These results use one FD001 validation split (seed 42). The LSTM result is from PyTorch 2.15.0 on CPU. The script reports running training error while the model is being updated, followed by validation error on held-out engines. The 1.40-cycle difference in validation MAE is specific to this run. Official test labels are reserved for final evaluation.
+   ```text
+   data/raw/train_FD001.txt
+   data/raw/test_FD001.txt
+   data/raw/RUL_FD001.txt
+   ```
+
+   [Download the NASA C‑MAPSS data](https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data)
+
+4. Run the project from its root folder. Each command can be run on its own after setup.
+
+   | Command | What you get |
+   | --- | --- |
+   | `python -m src.eda` | Sensor summaries and exploratory plots in `outputs/figures/`. |
+   | `python -m src.preprocessing` | Labeled and scaled data, separate test answers, and a fitted scaler in `data/processed/`. |
+   | `python -m src.baseline` | Validation results for the three single-row models. |
+   | `python -m src.windows` | Window sizes and a labeled example. |
+   | `python -m src.lstm` | Training error at each epoch and the final validation scores. |
+   | `python -m src.visualize` | Retrains the models and regenerates the four pictures in `docs/figures/`. |
+   | `python -m pytest -q` | Checks RUL labels, the split, and the window logic. |
+
+Open [the exploration notebook](notebooks/01_eda.ipynb) to see more sensor summaries, correlations, and engine plots. To run it from the project root, start Jupyter with `jupyter notebook`.
