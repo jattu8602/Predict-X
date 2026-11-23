@@ -20,7 +20,14 @@ def service(tmp_path_factory):
     forest = fit_random_forest(rows, FOREST_FEATURES)
     path = tmp_path_factory.mktemp("api-model") / "forest.joblib"
     save_forest(forest, path)
-    with TestClient(create_app(path)) as client:
+    demo_path = path.with_name("test_FD001.txt")
+    demo_rows = [
+        [engine, cycle, *([cycle] * (len(SETTINGS) + len(SENSORS)))]
+        for engine, count in ((1, 3), (2, 2))
+        for cycle in range(1, count + 1)
+    ]
+    np.savetxt(demo_path, demo_rows, fmt="%d")
+    with TestClient(create_app(path, demo_path)) as client:
         yield client, forest, rows
 
 
@@ -71,3 +78,27 @@ def test_missing_model_explains_how_to_train_it(tmp_path):
     with pytest.raises(RuntimeError, match="python -m src.train_model"):
         with TestClient(create_app(tmp_path / "missing.joblib")):
             pass
+
+
+
+def test_engine_history_can_be_used_directly_for_a_prediction(service):
+    client, _, _ = service
+    assert client.get("/engines").json() == [
+        {"engine_id": 1, "latest_cycle": 3},
+        {"engine_id": 2, "latest_cycle": 2},
+    ]
+    history = client.get("/engines/1").json()
+    assert history == {"engine_id": 1, "readings": [reading(1), reading(2), reading(3)]}
+    prediction = client.post("/predict", json=history["readings"][1])
+    assert prediction.status_code == 200
+    assert prediction.json()["cycle"] == 2
+    assert client.get("/engines/999").status_code == 404
+
+
+def test_prediction_still_works_when_demo_data_is_missing(tmp_path, service):
+    _, forest, _ = service
+    path = tmp_path / "forest.joblib"
+    save_forest(forest, path)
+    with TestClient(create_app(path, tmp_path / "missing.txt")) as client:
+        assert client.get("/engines").status_code == 503
+        assert client.post("/predict", json=reading(1)).status_code == 200

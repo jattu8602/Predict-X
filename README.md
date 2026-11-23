@@ -152,6 +152,29 @@ FastAPI gives the dashboard a way to talk to Predict‑X. Think of the **request
 
 [FastAPI code](src/api.py) · [API tests](tests/test_api.py)
 
+## 11. Explore an engine in the React dashboard
+
+The dashboard connects the model to a screen you can interact with. It loads partial histories from the 100 simulated FD001 test engines, then sends one selected row to the prediction API.
+
+1. Install the Python dependencies, put the FD001 files in `data/raw/`, and run `python -m src.train_model` if you haven’t saved the forest yet.
+2. Start the API in one terminal at the repository root.
+
+   ```sh
+   python -m uvicorn src.api:app
+   ```
+
+3. In a second terminal at the repository root, use Node.js 22.12 or newer to install and start the dashboard.
+
+   ```sh
+   npm --prefix dashboard ci
+   npm --prefix dashboard run dev
+   ```
+
+4. Open the local URL printed by Vite (usually `http://localhost:5173`). Pick an engine, move the **Prediction cycle** slider, and choose a sensor. The chart shows readings through the selected cycle.
+5. Click **Predict remaining life**. For engine 1 at its last recorded cycle (31), the model estimates **171.73 cycles**. Moving the slider changes which reading the model receives. Switching the chart’s sensor changes what you see while the prediction still uses all 21 sensors.
+
+The dashboard reads the engine list from `GET /engines` and the selected history from `GET /engines/{engine_id}`. It sends the selected cycle and its readings to `POST /predict`. The Vite proxy forwards those requests to FastAPI on port 8000. To use another API address, set `PREDICTX_API_TARGET` before running Vite. Build the frontend with `npm --prefix dashboard run build`. [React dashboard code](dashboard/src/main.jsx) · [FastAPI routes](src/api.py)
+
 ## Run it yourself
 
 1. Clone the repository and create a Python environment (Python 3.10 or newer).

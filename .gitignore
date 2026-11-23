@@ -8,3 +8,5 @@ data/processed/*
 outputs/figures/*.png
 models/*
 !models/.gitkeep
+dashboard/node_modules/
+dashboard/dist/

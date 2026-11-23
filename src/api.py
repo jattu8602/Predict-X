@@ -1,23 +1,25 @@
 """Serve remaining-life predictions from the saved FD001 forest."""
 
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sklearn.ensemble import RandomForestRegressor
 
 from src.baseline import FOREST_FEATURES
-from src.data_loader import SENSORS, SETTINGS
+from src.data_loader import RAW_DIR, SENSORS, SETTINGS, load_trajectories
 from src.predict import load_forest
 from src.train_model import DATASET_NAME, MODEL_PATH
 
 MODEL_ID = MODEL_PATH.stem
+DEMO_PATH = RAW_DIR / "test_FD001.txt"
 # scikit-learn's forest converts inference inputs to float32.
 FLOAT32_MAX = float(np.finfo(np.float32).max)
 ReadingValue = Annotated[
@@ -37,6 +39,16 @@ class EngineReading(BaseModel):
         list[ReadingValue],
         Field(min_length=len(SENSORS), max_length=len(SENSORS), description="Sensors 1 to 21 in order."),
     ]
+
+
+class EngineSummary(BaseModel):
+    engine_id: int
+    latest_cycle: int
+
+
+class EngineHistory(BaseModel):
+    engine_id: int
+    readings: list[EngineReading]
 
 
 class PredictionBatch(BaseModel):
@@ -69,7 +81,16 @@ def predict_readings(forest: RandomForestRegressor, readings: list[EngineReading
     ]
 
 
-def create_app(model_path: Path = MODEL_PATH) -> FastAPI:
+def create_app(model_path: Path = MODEL_PATH, demo_path: Path = DEMO_PATH) -> FastAPI:
+    @lru_cache(maxsize=1)
+    def demo_rows() -> pd.DataFrame:
+        try:
+            return load_trajectories(demo_path)
+        except FileNotFoundError as error:
+            raise HTTPException(
+                status_code=503, detail="Add test_FD001.txt to data/raw/ to explore the demo engines."
+            ) from error
+
     @asynccontextmanager
     async def lifespan(api: FastAPI):
         try:
@@ -97,6 +118,23 @@ def create_app(model_path: Path = MODEL_PATH) -> FastAPI:
     @api.get("/models")
     def models() -> list[ModelInfo]:
         return [ModelInfo(id=MODEL_ID, dataset=DATASET_NAME, input_columns=FOREST_FEATURES)]
+
+    @api.get("/engines")
+    def list_engines() -> list[EngineSummary]:
+        latest = demo_rows().groupby("unit_id")["cycle"].max()
+        return [EngineSummary(engine_id=engine, latest_cycle=cycle) for engine, cycle in latest.items()]
+
+    @api.get("/engines/{engine_id}")
+    def engine_history(engine_id: int) -> EngineHistory:
+        rows = demo_rows()
+        engine = rows.loc[rows["unit_id"].eq(engine_id), FOREST_FEATURES]
+        if engine.empty:
+            raise HTTPException(status_code=404, detail="Engine not found.")
+        readings = [
+            EngineReading(cycle=cycle, settings=values[:len(SETTINGS)], sensors=values[len(SETTINGS):])
+            for cycle, *values in engine.itertuples(index=False, name=None)
+        ]
+        return EngineHistory(engine_id=engine_id, readings=readings)
 
     @api.post("/predict")
     def predict(reading: EngineReading, request: Request) -> Prediction:
