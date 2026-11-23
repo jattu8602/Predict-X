@@ -13,13 +13,14 @@ from src.data_loader import RAW_DIR, ROOT, load_trajectories
 from src.preprocessing import add_rul
 
 MODEL_PATH = ROOT / "models" / "random_forest_fd001.joblib"
+DATASET_NAME = "NASA C-MAPSS FD001"
 
 
 def save_forest(forest: RandomForestRegressor, destination: Path) -> None:
     """Save the fitted estimator with the exact inputs it expects."""
     artifact = {
         "model": forest,
-        "dataset": "NASA C-MAPSS FD001",
+        "dataset": DATASET_NAME,
         "feature_names": forest.feature_names_in_.tolist(),
         "sklearn_version": sklearn_version,
     }

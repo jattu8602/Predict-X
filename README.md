@@ -116,6 +116,42 @@ python -m src.predict data/raw/test_FD001.txt --engine 1
 
 We chose the Random Forest for this first inference workflow because it had the lower official-test RMSE and can work with a single observation. The model file is generated locally using the training command. [Training code](src/train_model.py) · [Prediction code](src/predict.py)
 
+## 10. Ask the saved model for a prediction over HTTP
+
+FastAPI gives the dashboard a way to talk to Predict‑X. Think of the **request** as a question containing the engine’s latest measurements. The **response** is the model’s estimate of how many cycles are left. The server loads the saved forest once when it starts and uses it for each request.
+
+1. Install the project dependencies with `python -m pip install -r requirements.txt`. If you haven’t trained and saved the forest yet, run `python -m src.train_model`.
+2. Start the server from the project folder.
+
+   ```sh
+   python -m uvicorn src.api:app
+   ```
+
+3. Open [the local API playground](http://127.0.0.1:8000/docs). Expand **POST /predict**, click **Try it out**, paste this reading from engine 1 at cycle 31, and click **Execute**.
+
+   ```json
+   {
+     "cycle": 31,
+     "settings": [-0.0006, 0.0004, 100.0],
+     "sensors": [
+       518.67, 642.58, 1581.22, 1398.91, 14.62, 21.61, 554.42,
+       2388.08, 9056.4, 1.3, 47.23, 521.79, 2388.06, 8130.11,
+       8.4024, 0.03, 393.0, 2388.0, 100.0, 38.81, 23.3552
+     ]
+   }
+   ```
+
+   The response includes `cycle`, the model ID `random_forest_fd001`, and `predicted_rul_cycles` (about **171.73** for this example). Supply settings 1–3 and sensors 1–21 in their original order. If the request is missing a measurement, the API returns status **422** and identifies the field to fix.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /health` | Confirms the server started and loaded the saved forest. |
+| `GET /models` | Lists the available model, its dataset, and input columns. |
+| `POST /predict` | Estimates the cycles remaining from one reading. |
+| `POST /predict/batch` | Takes a JSON object with a `readings` list and returns one estimate per reading, in the same order. |
+
+[FastAPI code](src/api.py) · [API tests](tests/test_api.py)
+
 ## Run it yourself
 
 1. Clone the repository and create a Python environment (Python 3.10 or newer).
@@ -157,6 +193,7 @@ We chose the Random Forest for this first inference workflow because it had the 
    | `python -m src.visualize` | Retrains the models and regenerates the four pictures in `docs/figures/`. |
    | `python -m src.train_model` | Saves the trained Random Forest to `models/`. |
    | `python -m src.predict data/raw/test_FD001.txt --engine 1` | Loads the saved forest and predicts from engine 1’s last reading. |
-   | `python -m pytest -q` | Checks RUL labels, the split, window logic, and model reload. |
+   | `python -m uvicorn src.api:app` | Serves the saved forest and opens the API playground at `/docs`. |
+   | `python -m pytest -q` | Checks data preparation, windows, model reload, and the API. |
 
 Open [the exploration notebook](notebooks/01_eda.ipynb) to see more sensor summaries, correlations, and engine plots. To run it from the project root, start Jupyter with `jupyter notebook`.
