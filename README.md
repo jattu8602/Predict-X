@@ -101,6 +101,21 @@ The LSTM missed by about **19.53 cycles on average**, 0.40 cycles less than the 
 
 [Official evaluation code](src/evaluate.py)
 
+## 9. Save a model and use it for a new prediction
+
+Training and predicting are two separate jobs. **Training** builds the trees from complete engine histories. It runs once and saves the fitted Random Forest and its input column order. **Inference** is what happens later when you hand the saved forest a new reading and ask for a guess.
+
+```sh
+python -m src.train_model
+python -m src.predict data/raw/test_FD001.txt --engine 1
+```
+
+1. The first command trains on the **100 complete FD001 histories** and writes `models/random_forest_fd001.joblib`. The file includes the fitted trees, the dataset name, the scikit-learn version, and the order of the 25 input columns.
+2. The second command loads that file, finds engine 1’s latest row, and prints how many cycles it estimates are left. At cycle 31, our saved model estimated **171.73 cycles left** for engine 1. NASA’s answer was **112 cycles**, so this particular prediction was about 60 cycles high. You can run the prediction command again in a new terminal with the project environment active.
+3. The prediction command only needs the saved model and the engine log. NASA’s answer file is used by the separate evaluation command when we want to score predictions.
+
+We chose the Random Forest for this first inference workflow because it had the lower official-test RMSE and can work with a single observation. The model file is generated locally using the training command. [Training code](src/train_model.py) · [Prediction code](src/predict.py)
+
 ## Run it yourself
 
 1. Clone the repository and create a Python environment (Python 3.10 or newer).
@@ -140,6 +155,8 @@ The LSTM missed by about **19.53 cycles on average**, 0.40 cycles less than the 
    | `python -m src.lstm` | Training error at each epoch and the final validation scores. |
    | `python -m src.evaluate` | Scores at the last recorded cycle of each official test engine. |
    | `python -m src.visualize` | Retrains the models and regenerates the four pictures in `docs/figures/`. |
-   | `python -m pytest -q` | Checks RUL labels, the split, and the window logic. |
+   | `python -m src.train_model` | Saves the trained Random Forest to `models/`. |
+   | `python -m src.predict data/raw/test_FD001.txt --engine 1` | Loads the saved forest and predicts from engine 1’s last reading. |
+   | `python -m pytest -q` | Checks RUL labels, the split, window logic, and model reload. |
 
 Open [the exploration notebook](notebooks/01_eda.ipynb) to see more sensor summaries, correlations, and engine plots. To run it from the project root, start Jupyter with `jupyter notebook`.

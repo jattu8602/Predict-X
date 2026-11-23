@@ -10,21 +10,26 @@ from src.data_loader import FEATURES, RAW_DIR, load_trajectories
 from src.preprocessing import VALIDATION_CYCLES, add_rul, split_engines
 
 
+FOREST_FEATURES = ["cycle", *FEATURES]
+
+
+def fit_random_forest(train: pd.DataFrame, columns: list[str]) -> RandomForestRegressor:
+    """Fit the fixed forest configuration used for both benchmark variants."""
+    forest = RandomForestRegressor(n_estimators=100, min_samples_leaf=5, random_state=42)
+    return forest.fit(train[columns], train["RUL"])
+
+
 def predict_baselines(train: pd.DataFrame, snapshots: pd.DataFrame) -> dict[str, np.ndarray]:
     """Fit the three baseline models and predict in snapshot row order."""
-    # Use the same forest settings to isolate the value of the extra inputs.
-    forest_settings = {"n_estimators": 100, "min_samples_leaf": 5, "random_state": 42}
-    comparisons = (
-        ("Training median", DummyRegressor(strategy="median"), ["cycle"]),
-        ("Random Forest, age only", RandomForestRegressor(**forest_settings), ["cycle"]),
-        ("Random Forest, age + telemetry", RandomForestRegressor(**forest_settings), ["cycle", *FEATURES]),
-    )
-
-    predictions = {}
-    for name, model, columns in comparisons:
-        model.fit(train[columns], train["RUL"])
-        predictions[name] = model.predict(snapshots[columns])
-    return predictions
+    age = ["cycle"]
+    median = DummyRegressor(strategy="median").fit(train[age], train["RUL"])
+    age_only = fit_random_forest(train, age)
+    full_forest = fit_random_forest(train, FOREST_FEATURES)
+    return {
+        "Training median": median.predict(snapshots[age]),
+        "Random Forest, age only": age_only.predict(snapshots[age]),
+        "Random Forest, age + telemetry": full_forest.predict(snapshots[FOREST_FEATURES]),
+    }
 
 
 def main() -> None:
