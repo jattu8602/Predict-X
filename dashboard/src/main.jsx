@@ -1,27 +1,11 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import Chart from 'chart.js/auto';
+import { getEngine, getEngines, getPrediction, hostedDemo } from './data.js';
 import './styles.css';
 
 const formatEstimate = new Intl.NumberFormat('en', { maximumFractionDigits: 2 });
 const formatReading = new Intl.NumberFormat('en', { maximumFractionDigits: 5 });
-
-async function request(path, options) {
-  let response;
-  try {
-    response = await fetch(`/api${path}`, options);
-  } catch (error) {
-    if (error.name === 'AbortError') throw error;
-    throw new Error('Could not reach the Predict-X API. Check that FastAPI is running.');
-  }
-
-  if (!response.ok) {
-    const problem = await response.json().catch(() => null);
-    const message = typeof problem?.detail === 'string' ? problem.detail : null;
-    throw new Error(message || `The API request failed (HTTP ${response.status}).`);
-  }
-  return response.json();
-}
 
 function SensorChart({ readings, selectedIndex, sensor }) {
   const canvas = useRef(null);
@@ -100,13 +84,7 @@ function PredictionCard({ reading }) {
     setPending(true);
     setError(null);
     try {
-      const response = await request('/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reading),
-        signal: controller.signal,
-      });
-      setEstimate(response.predicted_rul_cycles);
+      setEstimate(await getPrediction(reading, controller.signal));
     } catch (error) {
       if (!controller.signal.aborted) setError(error.message);
     } finally {
@@ -130,7 +108,7 @@ function PredictionCard({ reading }) {
       </div>
       {error && <p className="error" role="alert">{error}</p>}
       <button type="button" className="primary" onClick={predict} disabled={pending}>
-        {pending ? 'Predicting…' : 'Predict remaining life'}
+        {pending ? 'Predicting…' : hostedDemo ? 'Show remaining-life estimate' : 'Predict remaining life'}
       </button>
     </section>
   );
@@ -145,7 +123,7 @@ function EngineWorkspace({ engine }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    request(`/engines/${engine}`, { signal: controller.signal })
+    getEngine(engine, controller.signal)
       .then((data) => setReadings(data.readings))
       .catch((error) => {
         if (!controller.signal.aborted) setError(error.message);
@@ -224,7 +202,7 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    request('/engines', { signal: controller.signal })
+    getEngines(controller.signal)
       .then((data) => {
         setEngines(data);
         setEngine(data[0]?.engine_id ?? null);
@@ -246,9 +224,13 @@ function App() {
       <main className="shell">
         <div className="page-header">
           <div>
-            <p className="dataset">NASA C-MAPSS / FD001</p>
+            <p className="dataset">NASA C-MAPSS / FD001{hostedDemo && " · Hosted demo"}</p>
             <h1>Engine health dashboard</h1>
-            <p className="muted">Explore simulated sensor readings and estimate how many operating cycles an engine has left.</p>
+            <p className="muted">
+              {hostedDemo
+                ? 'Explore simulated sensor readings and see saved Random Forest estimates for each engine and cycle.'
+                : 'Explore simulated sensor readings and estimate how many operating cycles an engine has left.'}
+            </p>
           </div>
           {engines?.length > 0 && (
             <label className="engine-control">

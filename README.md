@@ -175,6 +175,19 @@ The dashboard connects the model to a screen you can interact with. It loads par
 
 The dashboard reads the engine list from `GET /engines` and the selected history from `GET /engines/{engine_id}`. It sends the selected cycle and its readings to `POST /predict`. The Vite proxy forwards those requests to FastAPI on port 8000. To use another API address, set `PREDICTX_API_TARGET` before running Vite. Build the frontend with `npm --prefix dashboard run build`. [React dashboard code](dashboard/src/main.jsx) · [FastAPI routes](src/api.py)
 
+## 12. Build the hosted FD001 demo
+
+The hosted demo lets you explore every recorded cycle from all **100 FD001 test engines**. It displays estimates exported from the saved Random Forest for those **13,096 readings**. This lets an HTML host serve the dashboard as files. For live inference on new readings, run FastAPI and the dashboard as described above.
+
+Once you have trained and saved the forest, export the readings and estimates, then build the dashboard in hosted mode:
+
+```sh
+python -m src.export_demo
+VITE_PREDICTX_HOSTED_DEMO=1 npm --prefix dashboard run build
+```
+
+On Windows PowerShell, set `$env:VITE_PREDICTX_HOSTED_DEMO = "1"` before running the build command. The output is in `dashboard/dist/`. The exporter reads `test_FD001.txt` for the sensor readings. NASA’s answer file is used by the separate official test command. [Demo exporter](src/export_demo.py)
+
 ## Run it yourself
 
 1. Clone the repository and create a Python environment (Python 3.10 or newer).

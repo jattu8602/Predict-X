@@ -10,3 +10,4 @@ models/*
 !models/.gitkeep
 dashboard/node_modules/
 dashboard/dist/
+dashboard/public/demo/
