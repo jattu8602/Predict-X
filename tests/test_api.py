@@ -102,3 +102,19 @@ def test_prediction_still_works_when_demo_data_is_missing(tmp_path, service):
     with TestClient(create_app(path, tmp_path / "missing.txt")) as client:
         assert client.get("/engines").status_code == 503
         assert client.post("/predict", json=reading(1)).status_code == 200
+
+
+def test_dashboard_and_prediction_api_share_the_same_origin(tmp_path, service):
+    _, forest, _ = service
+    path = tmp_path / "forest.joblib"
+    save_forest(forest, path)
+    dashboard = tmp_path / "dist"
+    dashboard.mkdir()
+    (dashboard / "index.html").write_text("<h1>Predict-X</h1>", encoding="utf-8")
+
+    with TestClient(create_app(path, dashboard_dir=dashboard)) as client:
+        assert "<h1>Predict-X</h1>" in client.get("/").text
+        assert client.get("/api/health").json() == {"status": "ok"}
+        response = client.post("/api/predict", json=reading(1))
+        assert response.status_code == 200
+        assert response.json()["model"] == MODEL_ID

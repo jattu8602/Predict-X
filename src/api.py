@@ -7,9 +7,10 @@ from typing import Annotated
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sklearn.ensemble import RandomForestRegressor
 
@@ -81,7 +82,11 @@ def predict_readings(forest: RandomForestRegressor, readings: list[EngineReading
     ]
 
 
-def create_app(model_path: Path = MODEL_PATH, demo_path: Path = DEMO_PATH) -> FastAPI:
+def create_app(
+    model_path: Path = MODEL_PATH,
+    demo_path: Path = DEMO_PATH,
+    dashboard_dir: Path | None = None,
+) -> FastAPI:
     @lru_cache(maxsize=1)
     def demo_rows() -> pd.DataFrame:
         try:
@@ -111,20 +116,22 @@ def create_app(model_path: Path = MODEL_PATH, demo_path: Path = DEMO_PATH) -> Fa
         detail = [{key: issue[key] for key in ("loc", "msg", "type")} for issue in error.errors()]
         return JSONResponse(status_code=422, content={"detail": detail})
 
-    @api.get("/health")
+    routes = APIRouter()
+
+    @routes.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @api.get("/models")
+    @routes.get("/models")
     def models() -> list[ModelInfo]:
         return [ModelInfo(id=MODEL_ID, dataset=DATASET_NAME, input_columns=FOREST_FEATURES)]
 
-    @api.get("/engines")
+    @routes.get("/engines")
     def list_engines() -> list[EngineSummary]:
         latest = demo_rows().groupby("unit_id")["cycle"].max()
         return [EngineSummary(engine_id=engine, latest_cycle=cycle) for engine, cycle in latest.items()]
 
-    @api.get("/engines/{engine_id}")
+    @routes.get("/engines/{engine_id}")
     def engine_history(engine_id: int) -> EngineHistory:
         rows = demo_rows()
         engine = rows.loc[rows["unit_id"].eq(engine_id), FOREST_FEATURES]
@@ -136,14 +143,19 @@ def create_app(model_path: Path = MODEL_PATH, demo_path: Path = DEMO_PATH) -> Fa
         ]
         return EngineHistory(engine_id=engine_id, readings=readings)
 
-    @api.post("/predict")
+    @routes.post("/predict")
     def predict(reading: EngineReading, request: Request) -> Prediction:
         return predict_readings(request.app.state.forest, [reading])[0]
 
-    @api.post("/predict/batch")
+    @routes.post("/predict/batch")
     def predict_batch(batch: PredictionBatch, request: Request) -> list[Prediction]:
         return predict_readings(request.app.state.forest, batch.readings)
 
+    if dashboard_dir is None:
+        api.include_router(routes)
+    else:
+        api.include_router(routes, prefix="/api")
+        api.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
     return api
 
 

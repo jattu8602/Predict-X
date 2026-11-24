@@ -188,6 +188,23 @@ VITE_PREDICTX_HOSTED_DEMO=1 npm --prefix dashboard run build
 
 On Windows PowerShell, set `$env:VITE_PREDICTX_HOSTED_DEMO = "1"` before running the build command. The output is in `dashboard/dist/`. The exporter reads `test_FD001.txt` for the sensor readings. NASA’s answer file is used by the separate official test command. [Demo exporter](src/export_demo.py)
 
+## 13. Deploy React and FastAPI together on Render
+
+The Render build puts the React dashboard and the live Random Forest API in one Docker image. The dashboard is served at `/` and sends requests to `/api` on the same domain. The Docker build downloads and verifies the two original FD001 files from NASA, trains the Random Forest, and packages the saved model. When the server starts, it loads the model and serves predictions for new readings.
+
+[Deploy to Render](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fjattu8602%2FPredict-X)
+
+The Blueprint creates one Free Docker web service. After the deployment finishes, open the service’s `onrender.com` URL for the dashboard, `/docs` for the API playground, or `/api/health` to check that the model loaded. Free services can sleep when idle, so the first visit may take longer. [Render free service details](https://render.com/docs/free)
+
+To run the same image locally:
+
+```sh
+docker build -t predict-x .
+docker run --rm -p 10000:10000 predict-x
+```
+
+Then open [the dashboard](http://localhost:10000) or [its API playground](http://localhost:10000/docs).
+
 ## Run it yourself
 
 1. Clone the repository and create a Python environment (Python 3.10 or newer).

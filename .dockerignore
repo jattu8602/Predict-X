@@ -1,0 +1,13 @@
+.git
+.venv
+**/__pycache__
+.pytest_cache
+data
+models
+docs
+notebooks
+outputs
+tests
+dashboard/node_modules
+dashboard/dist
+dashboard/public/demo

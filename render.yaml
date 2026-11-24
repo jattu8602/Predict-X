@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: predict-x
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
