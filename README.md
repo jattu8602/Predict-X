@@ -170,8 +170,8 @@ The dashboard connects the model to a screen you can interact with. It loads par
    npm --prefix dashboard run dev
    ```
 
-4. Open the local URL printed by Vite (usually `http://localhost:5173`). Pick an engine, move the **Prediction cycle** slider, and choose a sensor. The chart shows readings through the selected cycle.
-5. Click **Predict remaining life**. For engine 1 at its last recorded cycle (31), the model estimates **171.73 cycles**. Moving the slider changes which reading the model receives. Switching the chart’s sensor changes what you see while the prediction still uses all 21 sensors.
+4. Open the local URL printed by Vite (usually `http://localhost:5173`). Pick an engine and click **Get estimate**. For engine 1 at its latest reading (cycle 31), the model estimates **171.73 cycles**.
+5. To explore an earlier reading, click **Change cycle**, move the slider, and get another estimate. **Use latest reading** returns to the last recorded cycle. Changing the chart’s sensor changes what you see while the estimate still uses all 21 sensors from the selected cycle.
 
 The dashboard reads the engine list from `GET /engines` and the selected history from `GET /engines/{engine_id}`. It sends the selected cycle and its readings to `POST /predict`. The Vite proxy forwards those requests to FastAPI on port 8000. To use another API address, set `PREDICTX_API_TARGET` before running Vite. Build the frontend with `npm --prefix dashboard run build`. [React dashboard code](dashboard/src/main.jsx) · [FastAPI routes](src/api.py)
 

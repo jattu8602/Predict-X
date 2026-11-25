@@ -6,6 +6,9 @@ import './styles.css';
 
 const formatEstimate = new Intl.NumberFormat('en', { maximumFractionDigits: 2 });
 const formatReading = new Intl.NumberFormat('en', { maximumFractionDigits: 5 });
+const chartInk = '#526076';
+const chartGrid = '#e7edf1';
+const chartLine = '#087c70';
 
 function SensorChart({ readings, selectedIndex, sensor }) {
   const canvas = useRef(null);
@@ -17,12 +20,13 @@ function SensorChart({ readings, selectedIndex, sensor }) {
       data: {
         datasets: [{
           data: visible.map((reading) => ({ x: reading.cycle, y: reading.sensors[sensor] })),
-          borderColor: '#54dfc1',
-          backgroundColor: 'rgba(84, 223, 193, 0.08)',
+          borderColor: chartLine,
+          backgroundColor: '#087c7010',
           borderWidth: 2,
+          clip: 6,
           fill: 'start',
-          pointRadius: (context) => context.dataIndex === selectedIndex ? 4 : 0,
-          pointBackgroundColor: '#54dfc1',
+          pointRadius: ({ dataIndex }) => dataIndex === selectedIndex ? 5 : 0,
+          pointBackgroundColor: chartLine,
           pointHitRadius: 8,
         }],
       },
@@ -30,19 +34,20 @@ function SensorChart({ readings, selectedIndex, sensor }) {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        layout: { padding: { right: 7 } },
         interaction: { mode: 'nearest', axis: 'x', intersect: false },
         scales: {
           x: {
             type: 'linear',
             min: readings[0].cycle,
             max: Math.max(readings.at(-1).cycle, readings[0].cycle + 1),
-            grid: { color: '#223249' },
-            ticks: { color: '#a5b5ca', precision: 0, maxTicksLimit: 8 },
-            title: { display: true, text: 'Operating cycle', color: '#a5b5ca' },
+            grid: { color: chartGrid },
+            ticks: { color: chartInk, precision: 0, maxTicksLimit: 8 },
+            title: { display: true, text: 'Operating cycle', color: chartInk },
           },
           y: {
-            grid: { color: '#223249' },
-            ticks: { color: '#a5b5ca', maxTicksLimit: 6 },
+            grid: { color: chartGrid },
+            ticks: { color: chartInk, maxTicksLimit: 6 },
           },
         },
         plugins: {
@@ -50,7 +55,7 @@ function SensorChart({ readings, selectedIndex, sensor }) {
           tooltip: {
             callbacks: {
               title: (items) => `Cycle ${items[0].parsed.x}`,
-              label: (item) => `Sensor ${sensor + 1} · ${item.parsed.y}`,
+              label: (item) => `Sensor ${sensor + 1} · ${formatReading.format(item.parsed.y)}`,
             },
           },
         },
@@ -70,7 +75,7 @@ function SensorChart({ readings, selectedIndex, sensor }) {
   );
 }
 
-function PredictionCard({ reading }) {
+function Prediction({ reading }) {
   const [estimate, setEstimate] = useState(null);
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
@@ -84,7 +89,8 @@ function PredictionCard({ reading }) {
     setPending(true);
     setError(null);
     try {
-      setEstimate(await getPrediction(reading, controller.signal));
+      const result = await getPrediction(reading, controller.signal);
+      if (!controller.signal.aborted) setEstimate(result);
     } catch (error) {
       if (!controller.signal.aborted) setError(error.message);
     } finally {
@@ -93,30 +99,107 @@ function PredictionCard({ reading }) {
   }
 
   return (
-    <section className="panel prediction" aria-labelledby="prediction-heading">
-      <div>
-        <h2 id="prediction-heading">Remaining life</h2>
-        <p className="muted">Random Forest estimate at cycle {reading.cycle}</p>
-      </div>
-      <div className="prediction-value" aria-live="polite">
-        {estimate === null ? <p className="muted">Run a prediction to see how many cycles the model estimates are left.</p> : (
-          <>
-            <strong>{formatEstimate.format(estimate)}</strong>
-            <span>cycles remaining</span>
-          </>
+    <>
+      <button type="button" className="primary" onClick={predict} disabled={pending}>
+        {pending ? 'Estimating…' : hostedDemo ? 'Show estimate' : 'Get estimate'}
+      </button>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="forecast" aria-live="polite" aria-busy={pending}>
+        <p className="forecast-label">Estimated life left</p>
+        {estimate === null ? (
+          <p className="forecast-empty">Your estimate will appear here.</p>
+        ) : (
+          <p className="forecast-value"><strong>{formatEstimate.format(estimate)}</strong><span>cycles</span></p>
         )}
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
-      <button type="button" className="primary" onClick={predict} disabled={pending}>
-        {pending ? 'Predicting…' : hostedDemo ? 'Show remaining-life estimate' : 'Predict remaining life'}
-      </button>
+      <p className="model-note">
+        Random Forest · uses all {reading.sensors.length} sensor readings at cycle {reading.cycle}.
+      </p>
+    </>
+  );
+}
+
+function CycleControl({ readings, index, onChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const cycle = readings[index].cycle;
+  const latestIndex = readings.length - 1;
+  const latest = index === latestIndex;
+
+  return (
+    <div className="cycle-control">
+      <div className="cycle-summary">
+        <div>
+          <p className="control-label">Reading used for estimate</p>
+          <p className="cycle-current"><strong>Cycle {cycle}</strong> · {latest ? 'Latest reading' : 'Earlier reading'}</p>
+        </div>
+        {latestIndex > 0 && (
+          <button
+            type="button"
+            className="text-button"
+            aria-expanded={expanded}
+            aria-controls="cycle-options"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Done' : 'Change cycle'}
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <div id="cycle-options" className="cycle-options">
+          <label htmlFor="cycle">Prediction cycle</label>
+          <input
+            id="cycle"
+            type="range"
+            min="0"
+            max={latestIndex}
+            value={index}
+            aria-valuetext={`Cycle ${cycle}`}
+            onChange={(event) => onChange(Number(event.target.value))}
+          />
+          <div className="range-labels">
+            <span>Cycle {readings[0].cycle}</span>
+            <span>Cycle {readings[latestIndex].cycle}</span>
+          </div>
+        </div>
+      )}
+      {!latest && (
+        <button type="button" className="text-button reset-cycle" onClick={() => onChange(latestIndex)}>
+          Use latest reading
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SensorPanel({ engine, readings, index, sensor, onSensorChange }) {
+  const reading = readings[index];
+
+  return (
+    <section className="panel sensor-panel" aria-labelledby="sensor-heading">
+      <div className="panel-header">
+        <div>
+          <h2 id="sensor-heading">Sensor history</h2>
+          <p className="muted">Engine {engine} through cycle {reading.cycle}</p>
+        </div>
+        <label className="sensor-control">
+          <span className="sr-only">Sensor</span>
+          <select value={sensor} onChange={(event) => onSensorChange(Number(event.target.value))}>
+            {reading.sensors.map((_, index) => <option key={index} value={index}>Sensor {index + 1}</option>)}
+          </select>
+        </label>
+      </div>
+      <dl className="reading">
+        <dt>Sensor {sensor + 1} at cycle {reading.cycle}</dt>
+        <dd>{formatReading.format(reading.sensors[sensor])}</dd>
+      </dl>
+      <SensorChart readings={readings} selectedIndex={index} sensor={sensor} />
+      <p className="chart-caption"><span aria-hidden="true" />The dot marks the reading used for the estimate.</p>
     </section>
   );
 }
 
-function EngineWorkspace({ engine }) {
-  const [readings, setReadings] = useState(null);
-  const [error, setError] = useState(null);
+function EngineWorkspace({ engines, engine, onEngineChange }) {
+  const [load, setLoad] = useState(null);
   const [attempt, setAttempt] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [sensor, setSensor] = useState(10);
@@ -124,70 +207,55 @@ function EngineWorkspace({ engine }) {
   useEffect(() => {
     const controller = new AbortController();
     getEngine(engine, controller.signal)
-      .then((data) => setReadings(data.readings))
+      .then((data) => {
+        if (!controller.signal.aborted) setLoad({ engine, readings: data.readings });
+      })
       .catch((error) => {
-        if (!controller.signal.aborted) setError(error.message);
+        if (!controller.signal.aborted) setLoad({ engine, error: error.message });
       });
     return () => controller.abort();
   }, [engine, attempt]);
 
-  if (error) {
-    return <LoadError message={error} retry={() => { setError(null); setAttempt(attempt + 1); }} />;
-  }
-  if (!readings) return <p className="panel message" role="status">Loading engine {engine}…</p>;
+  const current = load?.engine === engine ? load : null;
+  const readings = current?.readings;
+  const index = readings ? selectedIndex ?? readings.length - 1 : null;
+  const reading = readings?.[index];
 
-  const index = selectedIndex ?? readings.length - 1;
-  const reading = readings[index];
-  const finalCycle = readings.at(-1).cycle;
+  function selectEngine(event) {
+    setLoad(null);
+    setSelectedIndex(null);
+    onEngineChange(Number(event.target.value));
+  }
 
   return (
-    <>
-      <section className="panel timeline" aria-label="Prediction cycle">
-        <div className="cycle-heading">
-          <label htmlFor="cycle">Prediction cycle</label>
-          <output htmlFor="cycle"><strong>{reading.cycle}</strong> / {finalCycle}</output>
-        </div>
-        <input
-          id="cycle"
-          type="range"
-          min="0"
-          max={readings.length - 1}
-          value={index}
-          aria-valuetext={`Cycle ${reading.cycle}`}
-          disabled={readings.length === 1}
-          onChange={(event) => setSelectedIndex(Number(event.target.value))}
-        />
-        <div className="range-labels"><span>Cycle {readings[0].cycle}</span><span>Last recorded cycle</span></div>
+    <div className="workspace">
+      <section className="panel controls" aria-labelledby="estimate-heading">
+        <h2 id="estimate-heading">Get a life estimate</h2>
+        <label className="engine-control">
+          <span className="control-label">Demo engine</span>
+          <select value={engine} onChange={selectEngine}>
+            {engines.map(({ engine_id }) => <option key={engine_id} value={engine_id}>Engine {engine_id}</option>)}
+          </select>
+        </label>
+        {current?.error && <LoadError message={current.error} retry={() => { setLoad(null); setAttempt(attempt + 1); }} />}
+        {!current && <p className="muted" role="status">Loading engine {engine}…</p>}
+        {reading && (
+          <>
+            <CycleControl key={engine} readings={readings} index={index} onChange={setSelectedIndex} />
+            <Prediction key={`${engine}-${reading.cycle}`} reading={reading} />
+          </>
+        )}
       </section>
-      <div className="workspace">
-        <section className="panel sensor-panel" aria-labelledby="sensor-heading">
-          <div className="panel-header">
-            <div>
-              <h2 id="sensor-heading">Sensor history</h2>
-              <p className="muted">Engine {engine} through cycle {reading.cycle}</p>
-            </div>
-            <label className="sensor-control">
-              <span className="sr-only">Sensor</span>
-              <select value={sensor} onChange={(event) => setSensor(Number(event.target.value))}>
-                {reading.sensors.map((_, index) => <option key={index} value={index}>Sensor {index + 1}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="latest-reading">
-            <strong>{formatReading.format(reading.sensors[sensor])}</strong>
-            <span>Reading at cycle {reading.cycle}</span>
-          </div>
-          <SensorChart readings={readings} selectedIndex={index} sensor={sensor} />
-        </section>
-        <PredictionCard key={reading.cycle} reading={reading} />
-      </div>
-    </>
+      {reading && (
+        <SensorPanel engine={engine} readings={readings} index={index} sensor={sensor} onSensorChange={setSensor} />
+      )}
+    </div>
   );
 }
 
 function LoadError({ message, retry }) {
   return (
-    <div className="panel message" role="alert">
+    <div role="alert" className="load-error">
       <p className="error">{message}</p>
       <button type="button" className="secondary" onClick={retry}>Try again</button>
     </div>
@@ -204,6 +272,7 @@ function App() {
     const controller = new AbortController();
     getEngines(controller.signal)
       .then((data) => {
+        if (controller.signal.aborted) return;
         setEngines(data);
         setEngine(data[0]?.engine_id ?? null);
       })
@@ -218,33 +287,29 @@ function App() {
       <header className="site-header">
         <div className="shell header-content">
           <div className="wordmark"><span className="brand-mark" aria-hidden="true">PX</span>Predict‑X</div>
-          <a href="https://github.com/jattu8602/Predict-X#readme">Method &amp; results</a>
+          <nav aria-label="Project links">
+            <a href="https://github.com/jattu8602/Predict-X#readme">Project details</a>
+            {!hostedDemo && <a href="/docs">API docs</a>}
+          </nav>
         </div>
       </header>
       <main className="shell">
         <div className="page-header">
-          <div>
-            <p className="dataset">NASA C-MAPSS / FD001{hostedDemo && " · Hosted demo"}</p>
-            <h1>Engine health dashboard</h1>
-            <p className="muted">
-              {hostedDemo
-                ? 'Explore simulated sensor readings and see saved Random Forest estimates for each engine and cycle.'
-                : 'Explore simulated sensor readings and estimate how many operating cycles an engine has left.'}
-            </p>
+          <div className="source-label">
+            <span>NASA C-MAPSS · FD001</span>
+            {engines?.length > 0 && <span className="source-count">{engines.length} simulated engines</span>}
           </div>
-          {engines?.length > 0 && (
-            <label className="engine-control">
-              <span>Demo engine</span>
-              <select value={engine} onChange={(event) => setEngine(Number(event.target.value))}>
-                {engines.map(({ engine_id }) => <option key={engine_id} value={engine_id}>Engine {engine_id}</option>)}
-              </select>
-            </label>
-          )}
+          <h1>How long can this engine run?</h1>
+          <p className="intro">
+            {hostedDemo
+              ? 'Pick an engine to explore its sensor history and see how many operating cycles it was estimated to have left.'
+              : 'Pick a simulated engine and estimate how many operating steps (cycles) it has left.'}
+          </p>
         </div>
-        {error && <LoadError message={error} retry={() => { setError(null); setAttempt(attempt + 1); }} />}
-        {!engines && !error && <p className="panel message" role="status">Loading demo engines…</p>}
-        {engines?.length === 0 && <p className="panel message">There are no demo engines to display.</p>}
-        {engine !== null && <EngineWorkspace key={engine} engine={engine} />}
+        {error && <div className="panel"><LoadError message={error} retry={() => { setError(null); setAttempt(attempt + 1); }} /></div>}
+        {!engines && !error && <p className="panel muted" role="status">Loading demo engines…</p>}
+        {engines?.length === 0 && <p className="panel muted">There are no demo engines to display.</p>}
+        {engine !== null && <EngineWorkspace engines={engines} engine={engine} onEngineChange={setEngine} />}
       </main>
     </>
   );
